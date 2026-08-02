@@ -407,11 +407,21 @@
         function dragMove(clientX, clientY) {
             var dx = Math.abs(clientX - dragData.startX);
             var dy = Math.abs(clientY - dragData.startY);
+
             if (dx < CONFIG.dragThreshold && dy < CONFIG.dragThreshold) {
                 return; // 未超过阈值，视为点击
             }
-            dragging = true;
-            dragMoved = true;
+
+            // 超过阈值，但拖拽已结束（dragMoved true, dragging false）→ 残留 mousemove，忽略
+            if (dragMoved && !dragging) return;
+
+            // 首次超过阈值 → 激活拖拽
+            if (!dragging) {
+                dragging = true;
+                dragMoved = true;
+            }
+
+            // 已激活拖拽 → 跟随鼠标移动
             var x = Math.max(0, Math.min(window.innerWidth - 44, clientX - dragData.ox));
             var y = Math.max(0, Math.min(window.innerHeight - 44, clientY - dragData.oy));
             btn.style.left = x + 'px';
@@ -424,10 +434,17 @@
             btn.style.cursor = 'grab';
             btn.style.transition = 'box-shadow 0.2s';
             var rect = btn.getBoundingClientRect();
+            var bottomVal = (window.innerHeight - rect.bottom) + 'px';
+            var rightVal = (window.innerWidth - rect.right) + 'px';
             localStorage.setItem('mt_fab_pos', JSON.stringify({
-                bottomVal: (window.innerHeight - rect.bottom) + 'px',
-                rightVal: (window.innerWidth - rect.right) + 'px'
+                bottomVal: bottomVal,
+                rightVal: rightVal
             }));
+            // 恢复 bottom/right 定位，避免后续 mousemove 干扰
+            btn.style.bottom = bottomVal;
+            btn.style.right = rightVal;
+            btn.style.left = 'auto';
+            btn.style.top = 'auto';
         }
 
         // 鼠标事件
@@ -438,6 +455,8 @@
 
         document.addEventListener('mousemove', function (e) {
             if (!btn.style.left || btn.style.left === 'auto') return;
+            // 左键没按下 → 忽略（鼠标已松开，残留的 mousemove）
+            if (!(e.buttons & 1)) return;
             dragMove(e.clientX, e.clientY);
         });
 
