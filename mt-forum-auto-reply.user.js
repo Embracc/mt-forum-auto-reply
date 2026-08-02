@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MT论坛 一键回复看隐藏
 // @namespace    https://github.com/Embrace/mt-forum-auto-reply
-// @version      2.1
+// @version      2.2
 // @description  可拖拽悬浮按钮，点击自动回复看隐藏。支持触屏拖拽、回到顶部、智能降级
 // @author       Embrace
 // @match        https://bbs.binmt.cc/thread-*
@@ -184,14 +184,202 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
-        // 显示/隐藏回到顶部按钮
+        /* ---------- 8b. LV 个人信息按钮 ---------- */
+        var lvBtn = document.createElement('div');
+        lvBtn.textContent = 'LV';
+        lvBtn.id = 'mt_lv';
+        lvBtn.title = '查看个人信息与签到';
+        lvBtn.style.cssText = 'position:fixed;z-index:2147483646;width:36px;height:36px;' +
+            'background:rgba(100,100,100,0.6);color:#fff;' +
+            'border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);' +
+            'cursor:pointer;font-family:sans-serif;font-size:12px;font-weight:bold;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'user-select:none;-webkit-user-select:none;' +
+            'border:1px solid rgba(255,255,255,0.15);' +
+            'transition:opacity 0.3s,transform 0.2s;' +
+            'bottom:134px;right:38px;opacity:0;pointer-events:none';
+
+        lvBtn.onclick = function () {
+            if (lvBtn._loading) return;
+            lvBtn._loading = true;
+            lvBtn.style.background = 'rgba(156,163,175,0.6)';
+            lvBtn.textContent = '…';
+
+            fetch('https://bbs.binmt.cc/k_misign-sign.html', { credentials: 'include' })
+                .then(function (res) { return res.text(); })
+                .then(function (html) {
+                    var parser = new DOMParser();
+                    var doc = parser.parseFromString(html, 'text/html');
+                    var info = {};
+
+                    // 尝试多种选择器提取数据
+                    var els = doc.querySelectorAll('li, td, th, dt, dd, p, span, div');
+                    var text = '';
+                    for (var i = 0; i < els.length; i++) {
+                        text += els[i].textContent.trim() + '\n';
+                    }
+
+                    // 尝试提取结构化数据
+                    var tables = doc.querySelectorAll('table');
+                    var tableData = [];
+                    for (var i = 0; i < tables.length; i++) {
+                        var rows = tables[i].querySelectorAll('tr');
+                        for (var j = 0; j < rows.length; j++) {
+                            var cells = rows[j].querySelectorAll('th, td');
+                            var rowText = [];
+                            for (var k = 0; k < cells.length; k++) {
+                                rowText.push(cells[k].textContent.trim());
+                            }
+                            if (rowText.length > 0) tableData.push(rowText.join('  '));
+                        }
+                    }
+
+                    // 提取用户名
+                    var userMatch = text.match(/欢迎\s*(\S+)\s*|(\S+)\s*[，,]\s*您好|uid.*?(\d+)/i);
+                    if (userMatch) info.username = userMatch[1] || userMatch[2] || userMatch[3];
+
+                    // 提取签到天数
+                    var dayMatch = text.match(/(?:已连续签到|连续签到|已签到)\s*(\d+)\s*天/i);
+                    if (dayMatch) info.continuousDays = dayMatch[1];
+
+                    // 提取累计签到
+                    var totalMatch = text.match(/(?:累计签到|总共签到|签到总天数)\s*(\d+)\s*天/i);
+                    if (totalMatch) info.totalDays = totalMatch[1];
+
+                    // 提取签到等级
+                    var rankMatch = text.match(/签到等级[：:]\s*(\S+)/i);
+                    if (rankMatch) info.level = rankMatch[1];
+
+                    // 提取今日签到状态
+                    var signedMatch = text.match(/今日已签|已签到|签到成功/i);
+                    info.signedToday = !!signedMatch;
+
+                    // 提取积分
+                    var creditMatch = text.match(/(?:积分|金币|经验)[：:]\s*(\d+)/i);
+                    if (creditMatch) info.credit = creditMatch[1];
+
+                    // 提取签到排名
+                    var posMatch = text.match(/签到排名[：:]\s*第\s*(\d+)/i);
+                    if (posMatch) info.position = posMatch[1];
+
+                    // 从当前页面提取用户名（更可靠）
+                    if (!info.username) {
+                        var currUser = document.querySelector('.vwmy a, .hdc h2 a, #um p a, a[href*="space-uid"]');
+                        if (currUser) info.username = currUser.textContent.trim();
+                    }
+                    // 从当前页面提取积分
+                    if (!info.credit) {
+                        var currCredit = document.querySelector('.xg1 a[href*="credit"]');
+                        if (currCredit) info.credit = currCredit.textContent.trim();
+                    }
+
+                    showInfoModal(info, tableData, doc);
+                })
+                .catch(function (err) {
+                    showInfoModal({ error: '请求失败: ' + err.message }, [], null);
+                })
+                .finally(function () {
+                    lvBtn._loading = false;
+                    lvBtn.style.background = 'rgba(100,100,100,0.6)';
+                    lvBtn.textContent = 'LV';
+                });
+        };
+
+        function showInfoModal(info, tableData, doc) {
+            var overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
+                'background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;' +
+                'align-items:center;justify-content:center;font-family:sans-serif';
+
+            var modal = document.createElement('div');
+            modal.style.cssText = 'background:#fff;border-radius:14px;padding:20px 24px;' +
+                'max-width:400px;width:88%;box-shadow:0 8px 30px rgba(0,0,0,0.3);' +
+                'text-align:left;max-height:80vh;overflow-y:auto';
+
+            var html = '';
+
+            if (info.error) {
+                html += '<div style="text-align:center;padding:20px;">' +
+                    '<div style="font-size:40px;margin-bottom:12px;">❌</div>' +
+                    '<div style="font-size:14px;color:#666;">' + info.error + '</div></div>';
+            } else {
+                html += '<div style="border-bottom:1px solid #eee;padding-bottom:14px;margin-bottom:14px;">' +
+                    '<div style="font-size:20px;font-weight:bold;color:#333;">' +
+                    (info.username || '用户') + '</div>';
+
+                // 签到状态
+                var signColor = info.signedToday ? '#10b981' : '#f59e0b';
+                var signText = info.signedToday ? '✅ 今日已签到' : '⏳ 今日未签到';
+                html += '<div style="font-size:13px;color:' + signColor + ';margin-top:4px;">' + signText + '</div>';
+                html += '</div>';
+
+                // 信息行
+                var rows = [
+                    { label: '连续签到', value: info.continuousDays ? info.continuousDays + ' 天' : '—' },
+                    { label: '累计签到', value: info.totalDays ? info.totalDays + ' 天' : '—' },
+                    { label: '签到等级', value: info.level || '—' },
+                    { label: '签到排名', value: info.position ? '第 ' + info.position + ' 名' : '—' },
+                    { label: '积分', value: info.credit || '—' }
+                ];
+
+                for (var i = 0; i < rows.length; i++) {
+                    html += '<div style="display:flex;justify-content:space-between;padding:6px 0;' +
+                        'border-bottom:1px solid #f5f5f5;font-size:14px;">' +
+                        '<span style="color:#999;">' + rows[i].label + '</span>' +
+                        '<span style="color:#333;font-weight:bold;">' + rows[i].value + '</span></div>';
+                }
+
+                // 原始表格数据（如果有额外信息）
+                if (tableData && tableData.length > 0) {
+                    var extra = [];
+                    var known = ['签到', '等级', '积分', '连续', '累计', '排名', '天', '欢迎', '您好', 'uid', 'username'];
+                    for (var i = 0; i < tableData.length; i++) {
+                        var isKnown = false;
+                        for (var k = 0; k < known.length; k++) {
+                            if (tableData[i].indexOf(known[k]) !== -1) { isKnown = true; break; }
+                        }
+                        if (!isKnown && tableData[i].trim().length > 2) extra.push(tableData[i]);
+                    }
+                    if (extra.length > 0) {
+                        html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee;">';
+                        for (var i = 0; i < extra.length; i++) {
+                            html += '<div style="font-size:12px;color:#888;padding:2px 0;">' + extra[i] + '</div>';
+                        }
+                        html += '</div>';
+                    }
+                }
+            }
+
+            html += '<div style="text-align:center;margin-top:16px;">' +
+                '<button id="mt_info_close" style="background:#3b82f6;color:#fff;border:none;' +
+                'padding:8px 32px;border-radius:8px;font-size:14px;cursor:pointer;">关闭</button></div>';
+
+            modal.innerHTML = html;
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            document.getElementById('mt_info_close').addEventListener('click', function () {
+                overlay.remove();
+            });
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) overlay.remove();
+            });
+        }
+
+        // LV 按钮和 ↑ 按钮一起显示/隐藏
+
+        // 显示/隐藏回到顶部和LV按钮
         var scrollCheck = function () {
             if (window.scrollY > 500) {
                 topBtn.style.opacity = '1';
                 topBtn.style.pointerEvents = 'auto';
+                lvBtn.style.opacity = '1';
+                lvBtn.style.pointerEvents = 'auto';
             } else {
                 topBtn.style.opacity = '0';
                 topBtn.style.pointerEvents = 'none';
+                lvBtn.style.opacity = '0';
+                lvBtn.style.pointerEvents = 'none';
             }
         };
         window.addEventListener('scroll', scrollCheck, { passive: true });
@@ -275,6 +463,7 @@
 
         document.body.appendChild(statusEl);
         document.body.appendChild(topBtn);
+        document.body.appendChild(lvBtn);
 
         /* ---------- 10. 统一点击处理（拖拽不触发！） ---------- */
         function handleClick() {
