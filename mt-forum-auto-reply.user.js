@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MT论坛 一键回复看隐藏
 // @namespace    https://github.com/Embrace/mt-forum-auto-reply
-// @version      2.0
-// @description  可拖拽悬浮按钮，点击自动回复看隐藏。支持触屏拖拽、自定义回复、智能降级
+// @version      2.1
+// @description  可拖拽悬浮按钮，点击自动回复看隐藏。支持触屏拖拽、回到顶部、智能降级
 // @author       Embrace
 // @match        https://bbs.binmt.cc/thread-*
 // @grant        none
@@ -31,7 +31,7 @@
             '感谢搬运'
         ],
         dragThreshold: 10,  // px, 超过此距离视为拖拽
-        version: '2.0'
+        version: '2.1'
     };
 
     /* ===== 工具函数 ===== */
@@ -124,7 +124,6 @@
         /* ---------- 5. 构建回复内容 ---------- */
         function buildReply() {
             var base = randItem(CONFIG.replyPool);
-            // 尝试从标题提取关键词，30% 概率拼接
             var title = document.title || '';
             if (title && Math.random() < 0.3) {
                 var kw = title.replace(/^.*?[-–—|]\s*/, '').trim();
@@ -135,7 +134,7 @@
             return base;
         }
 
-        /* ---------- 6. 创建按钮 ---------- */
+        /* ---------- 6. 创建主按钮 ---------- */
         var btn = document.createElement('div');
         btn.textContent = 'M';
         btn.id = 'mt_fab';
@@ -166,7 +165,38 @@
             'font-size:13px;padding:6px 12px;border-radius:8px;font-family:sans-serif;' +
             'display:none;z-index:2147483646;pointer-events:none;white-space:nowrap';
 
-        /* ---------- 8. 拖拽逻辑（含触屏阈值） ---------- */
+        /* ---------- 8. 回到顶部按钮 ---------- */
+        var topBtn = document.createElement('div');
+        topBtn.textContent = '↑';
+        topBtn.id = 'mt_top';
+        topBtn.title = '回到顶部';
+        topBtn.style.cssText = 'position:fixed;z-index:2147483646;width:36px;height:36px;' +
+            'background:rgba(100,100,100,0.6);color:#fff;' +
+            'border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);' +
+            'cursor:pointer;font-family:sans-serif;font-size:18px;font-weight:bold;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'user-select:none;-webkit-user-select:none;' +
+            'border:1px solid rgba(255,255,255,0.15);' +
+            'transition:opacity 0.3s,transform 0.2s;' +
+            'bottom:90px;right:38px;opacity:0;pointer-events:none';
+
+        topBtn.onclick = function () {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        // 显示/隐藏回到顶部按钮
+        var scrollCheck = function () {
+            if (window.scrollY > 500) {
+                topBtn.style.opacity = '1';
+                topBtn.style.pointerEvents = 'auto';
+            } else {
+                topBtn.style.opacity = '0';
+                topBtn.style.pointerEvents = 'none';
+            }
+        };
+        window.addEventListener('scroll', scrollCheck, { passive: true });
+
+        /* ---------- 9. 拖拽逻辑（含触屏阈值） ---------- */
         var dragging = false;
         var dragData = {};
         var dragMoved = false;
@@ -244,19 +274,23 @@
         }, { passive: true });
 
         document.body.appendChild(statusEl);
+        document.body.appendChild(topBtn);
 
-        /* ---------- 9. 已回复状态 ---------- */
-        if (replied) {
-            btn.onclick = function () { location.reload(); };
-            btn.title = '已回复，点击刷新页面';
-            document.body.appendChild(btn);
-            return;
-        }
+        /* ---------- 10. 统一点击处理（拖拽不触发！） ---------- */
+        function handleClick() {
+            // ★ 核心：拖拽过则不执行任何点击动作
+            if (dragMoved) {
+                return;
+            }
 
-        /* ---------- 10. 回复逻辑 ---------- */
-        var loading = false;
-        btn.onclick = function () {
-            if (loading || dragMoved) return;
+            if (replied) {
+                // 已回复 → 刷新
+                location.reload();
+                return;
+            }
+
+            // 未回复 → 执行回复
+            if (loading) return;
             loading = true;
             showStatus('⏳ 回复中', 'rgba(0,0,0,0.75)');
             btn.style.background = '#6b7280';
@@ -295,7 +329,9 @@
                 clearInterval(anim);
                 fallbackReply(msg);
             });
-        };
+        }
+
+        btn.addEventListener('click', handleClick);
 
         function showStatus(text, bg) {
             statusEl.style.display = 'block';
@@ -312,7 +348,6 @@
             showStatus('⚠️ AJAX 失败，尝试表单提交', 'rgba(239,68,68,0.9)');
             btn.style.background = '#ef4444';
 
-            // 尝试激活快速回复框
             var fastReplyBtn = document.getElementById('fastpostsubmit') ||
                 document.querySelector('a[href*="action=reply"]') ||
                 document.querySelector('[id*="fastpost"]');
