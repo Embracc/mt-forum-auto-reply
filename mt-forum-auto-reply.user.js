@@ -94,17 +94,18 @@
             var tried = 0;
 
             function tryFetch() {
-                if (tried >= urls.length) { finishWithInfo(info, null); return; }
-                fetch(urls[tried], { credentials: 'include' })
-                    .then(function (res) { return res.text(); })
-                    .then(function (html) {
-                        tried++;
-                        if (html.indexOf('登录') !== -1 && html.indexOf('用户名') !== -1 && html.indexOf('密码') !== -1) {
-                            tryFetch(); return;
-                        }
-                        parseSignPage(html, info);
-                    })
-                    .catch(function () { tried++; tryFetch(); });
+                            if (tried >= urls.length) { finishWithInfo(info, null); return; }
+                            fetch(urls[tried], { credentials: 'include' })
+                                .then(function (res) { return res.text(); })
+                                .then(function (html) {
+                                    tried++;
+                                    // 检查是否被重定向到登录页（包含"您需要先登录"）
+                                    if (html.indexOf('您需要先登录') !== -1) {
+                                        tryFetch(); return;
+                                    }
+                                    parseSignPage(html, info);
+                                })
+                                .catch(function () { tried++; tryFetch(); });
             }
 
             function parseSignPage(html, info) {
