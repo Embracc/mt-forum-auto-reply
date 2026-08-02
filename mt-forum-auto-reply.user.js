@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         MT论坛 一键回复看隐藏
 // @namespace    https://github.com/Embrace/mt-forum-auto-reply
-// @version      2.2.2
-// @description  可拖拽悬浮按钮，点击自动回复看隐藏。支持触屏拖拽、回到顶部、智能降级
+// @version      2.3
+// @description  全站悬浮按钮：M(一键回复看隐藏)、↑(回到顶部)、LV(个人信息签到)。支持触屏拖拽、智能降级
 // @author       Embrace
-// @match        https://bbs.binmt.cc/thread-*
+// @match        https://bbs.binmt.cc/*
 // @grant        none
 // ==/UserScript==
 
@@ -31,7 +31,7 @@
             '感谢搬运'
         ],
         dragThreshold: 10,  // px, 超过此距离视为拖拽
-        version: '2.2.1'
+        version: '2.3'
     };
 
     /* ===== 工具函数 ===== */
@@ -46,7 +46,210 @@
         }
     }
 
+    /* ===== 辅助按钮（↑ 和 LV，全站显示） ===== */
+    function createAuxButtons() {
+        // 回到顶部 ↑
+        var topBtn = document.createElement('div');
+        topBtn.textContent = '↑';
+        topBtn.id = 'mt_top';
+        topBtn.title = '回到顶部';
+        topBtn.style.cssText = 'position:fixed;z-index:2147483646;width:36px;height:36px;' +
+            'background:rgba(100,100,100,0.6);color:#fff;' +
+            'border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);' +
+            'cursor:pointer;font-family:sans-serif;font-size:18px;font-weight:bold;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'user-select:none;-webkit-user-select:none;' +
+            'border:1px solid rgba(255,255,255,0.15);' +
+            'transition:transform 0.2s;' +
+            'bottom:90px;right:38px';
+        topBtn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+        document.body.appendChild(topBtn);
+
+        // LV 个人信息按钮
+        var lvBtn = document.createElement('div');
+        lvBtn.textContent = 'LV';
+        lvBtn.id = 'mt_lv';
+        lvBtn.title = '查看个人信息与签到';
+        lvBtn.style.cssText = 'position:fixed;z-index:2147483646;width:36px;height:36px;' +
+            'background:rgba(100,100,100,0.6);color:#fff;' +
+            'border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);' +
+            'cursor:pointer;font-family:sans-serif;font-size:12px;font-weight:bold;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'user-select:none;-webkit-user-select:none;' +
+            'border:1px solid rgba(255,255,255,0.15);' +
+            'transition:transform 0.2s;' +
+            'bottom:134px;right:38px';
+
+        lvBtn.onclick = function () {
+            if (lvBtn._loading) return;
+            lvBtn._loading = true;
+            lvBtn.style.background = 'rgba(156,163,175,0.6)';
+            lvBtn.textContent = '…';
+
+            var info = extractInfoFromCurrentPage();
+            var urls = [
+                'https://bbs.binmt.cc/k_misign-sign.html',
+                'https://bbs.binmt.cc/plugin.php?id=k_misign:sign'
+            ];
+            var tried = 0;
+
+            function tryFetch() {
+                if (tried >= urls.length) { finishWithInfo(info, null); return; }
+                fetch(urls[tried], { credentials: 'include' })
+                    .then(function (res) { return res.text(); })
+                    .then(function (html) {
+                        tried++;
+                        if (html.indexOf('登录') !== -1 && html.indexOf('用户名') !== -1 && html.indexOf('密码') !== -1) {
+                            tryFetch(); return;
+                        }
+                        parseSignPage(html, info);
+                    })
+                    .catch(function () { tried++; tryFetch(); });
+            }
+
+            function parseSignPage(html, info) {
+                var parser = new DOMParser();
+                var doc = parser.parseFromString(html, 'text/html');
+                var bodyText = doc.body ? doc.body.innerText || doc.body.textContent : '';
+
+                var userMatch = bodyText.match(/欢迎\s*(\S+)/i) || bodyText.match(/(\S+)\s*[，,]\s*您好/i);
+                if (userMatch) info.username = userMatch[1] || userMatch[2] || info.username;
+
+                info.signedToday = /今日已签|已签到|签到成功|签到奖励/i.test(bodyText);
+
+                var dayMatch = bodyText.match(/(?:已连续签到|连续签到|已签到)\s*(\d+)\s*天/i);
+                if (dayMatch) info.continuousDays = dayMatch[1];
+
+                var totalMatch = bodyText.match(/(?:累计签到|总共签到|签到总天数)\s*(\d+)\s*天/i);
+                if (totalMatch) info.totalDays = totalMatch[1];
+
+                var levelMatch = bodyText.match(/签到等级[：:]\s*(\S+)/i);
+                if (levelMatch) info.level = levelMatch[1];
+
+                var posMatch = bodyText.match(/签到排名[：:]\s*第\s*(\d+)/i);
+                if (posMatch) info.position = posMatch[1];
+
+                var creditMatch = bodyText.match(/(?:积分|金币|经验)[：:]\s*(\d+)/i);
+                if (creditMatch) info.credit = creditMatch[1];
+
+                var tables = doc.querySelectorAll('table');
+                var extraData = [];
+                for (var i = 0; i < tables.length; i++) {
+                    var rows = tables[i].querySelectorAll('tr');
+                    for (var j = 0; j < rows.length; j++) {
+                        var cells = rows[j].querySelectorAll('th, td');
+                        var rowText = [];
+                        for (var k = 0; k < cells.length; k++) rowText.push(cells[k].textContent.trim());
+                        if (rowText.length > 0) {
+                            var line = rowText.join('  ').trim();
+                            if (line.length > 2) extraData.push(line);
+                        }
+                    }
+                }
+
+                finishWithInfo(info, extraData);
+            }
+
+            function finishWithInfo(info, extraData) {
+                setTimeout(function () {
+                    showInfoModal(info, extraData || []);
+                    lvBtn._loading = false;
+                    lvBtn.style.background = 'rgba(100,100,100,0.6)';
+                    lvBtn.textContent = 'LV';
+                }, 100);
+            }
+
+            function extractInfoFromCurrentPage() {
+                var info = {};
+                var userSel = document.querySelector(
+                    '.vwmy a, .hdc h2 a, #um p a, a[href*="space-uid"], ' +
+                    '.authi a, .posterli a, .pls .avatar a[href*="uid"]'
+                );
+                if (userSel) info.username = userSel.textContent.trim();
+
+                var allText = document.body.innerText || document.body.textContent || '';
+                var creditMatch = allText.match(/(?:积分|金币)[：:]\s*(\d+)/i);
+                if (creditMatch) info.credit = creditMatch[1];
+
+                var signBtn = document.querySelector('a[href*="k_misign"], a[href*="sign"], td[class*="sign"]');
+                if (signBtn) info.signedToday = /已签|已打卡/.test(signBtn.textContent);
+
+                var dayMatch = allText.match(/(?:连续签到|已签到)\s*(\d+)\s*天/i);
+                if (dayMatch) info.continuousDays = dayMatch[1];
+
+                return info;
+            }
+
+            tryFetch();
+        };
+
+        document.body.appendChild(lvBtn);
+        return { topBtn: topBtn, lvBtn: lvBtn };
+    }
+
+    function showInfoModal(info, tableData) {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
+            'background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;' +
+            'align-items:center;justify-content:center;font-family:sans-serif';
+
+        var modal = document.createElement('div');
+        modal.style.cssText = 'background:#fff;border-radius:14px;padding:20px 24px;' +
+            'max-width:400px;width:88%;box-shadow:0 8px 30px rgba(0,0,0,0.3);' +
+            'text-align:left;max-height:80vh;overflow-y:auto';
+
+        var html = '<div style="border-bottom:1px solid #eee;padding-bottom:14px;margin-bottom:14px;">' +
+            '<div style="font-size:20px;font-weight:bold;color:#333;">' +
+            (info.username || '用户') + '</div>';
+
+        if (info.signedToday !== undefined) {
+            var signColor = info.signedToday ? '#10b981' : '#f59e0b';
+            var signText = info.signedToday ? '✅ 今日已签到' : '⏳ 今日未签到';
+            html += '<div style="font-size:13px;color:' + signColor + ';margin-top:4px;">' + signText + '</div>';
+        }
+        html += '</div>';
+
+        var rows = [
+            { label: '连续签到', value: info.continuousDays ? info.continuousDays + ' 天' : '—' },
+            { label: '累计签到', value: info.totalDays ? info.totalDays + ' 天' : '—' },
+            { label: '签到等级', value: info.level || '—' },
+            { label: '签到排名', value: info.position ? '第 ' + info.position + ' 名' : '—' },
+            { label: '积分', value: info.credit || '—' }
+        ];
+
+        for (var i = 0; i < rows.length; i++) {
+            html += '<div style="display:flex;justify-content:space-between;padding:6px 0;' +
+                'border-bottom:1px solid #f5f5f5;font-size:14px;">' +
+                '<span style="color:#999;">' + rows[i].label + '</span>' +
+                '<span style="color:#333;font-weight:bold;">' + rows[i].value + '</span></div>';
+        }
+
+        if (tableData && tableData.length > 0) {
+            html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee;">' +
+                '<div style="font-size:12px;color:#999;margin-bottom:6px;">📋 签到详情</div>';
+            for (var i = 0; i < tableData.length; i++) {
+                html += '<div style="font-size:12px;color:#666;padding:2px 0;">' + tableData[i] + '</div>';
+            }
+            html += '</div>';
+        }
+
+        html += '<div style="text-align:center;margin-top:16px;">' +
+            '<button id="mt_info_close" style="background:#3b82f6;color:#fff;border:none;' +
+            'padding:8px 32px;border-radius:8px;font-size:14px;cursor:pointer;">关闭</button></div>';
+
+        modal.innerHTML = html;
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        document.getElementById('mt_info_close').addEventListener('click', function () { overlay.remove(); });
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    }
+
+    /* ===== 主流程 ===== */
     waitForDOM(function () {
+        // 先创建辅助按钮（全站可见）
+        createAuxButtons();
+
         /* ---------- 1. 探测隐藏区域 ---------- */
         function findLocked() {
             var locked = document.querySelector('.locked');
@@ -83,6 +286,8 @@
         }
 
         var locked = findLocked();
+
+        // 没有隐藏内容 → 只显示辅助按钮，不创建 M 按钮
         if (!locked) return;
 
         /* ---------- 2. 提取 fid/tid ---------- */
@@ -134,7 +339,7 @@
             return base;
         }
 
-        /* ---------- 6. 创建主按钮 ---------- */
+        /* ---------- 6. 创建 M 按钮 ---------- */
         var btn = document.createElement('div');
         btn.textContent = 'M';
         btn.id = 'mt_fab';
@@ -165,254 +370,9 @@
             'font-size:13px;padding:6px 12px;border-radius:8px;font-family:sans-serif;' +
             'display:none;z-index:2147483646;pointer-events:none;white-space:nowrap';
 
-        /* ---------- 8. 回到顶部按钮 ---------- */
-        var topBtn = document.createElement('div');
-        topBtn.textContent = '↑';
-        topBtn.id = 'mt_top';
-        topBtn.title = '回到顶部';
-        topBtn.style.cssText = 'position:fixed;z-index:2147483646;width:36px;height:36px;' +
-            'background:rgba(100,100,100,0.6);color:#fff;' +
-            'border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);' +
-            'cursor:pointer;font-family:sans-serif;font-size:18px;font-weight:bold;' +
-            'display:flex;align-items:center;justify-content:center;' +
-            'user-select:none;-webkit-user-select:none;' +
-            'border:1px solid rgba(255,255,255,0.15);' +
-            'transition:transform 0.2s;' +
-            'bottom:90px;right:38px';
+        document.body.appendChild(statusEl);
 
-        topBtn.onclick = function () {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
-
-        /* ---------- 8b. LV 个人信息按钮 ---------- */
-        var lvBtn = document.createElement('div');
-        lvBtn.textContent = 'LV';
-        lvBtn.id = 'mt_lv';
-        lvBtn.title = '查看个人信息与签到';
-        lvBtn.style.cssText = 'position:fixed;z-index:2147483646;width:36px;height:36px;' +
-            'background:rgba(100,100,100,0.6);color:#fff;' +
-            'border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);' +
-            'cursor:pointer;font-family:sans-serif;font-size:12px;font-weight:bold;' +
-            'display:flex;align-items:center;justify-content:center;' +
-            'user-select:none;-webkit-user-select:none;' +
-            'border:1px solid rgba(255,255,255,0.15);' +
-            'transition:transform 0.2s;' +
-            'bottom:134px;right:38px';
-
-        lvBtn.onclick = function () {
-            if (lvBtn._loading) return;
-            lvBtn._loading = true;
-            lvBtn.style.background = 'rgba(156,163,175,0.6)';
-            lvBtn.textContent = '…';
-
-            // 先从当前页面提取基本信息
-            var info = extractInfoFromCurrentPage();
-
-            // 尝试多个签到页面 URL
-            var urls = [
-                'https://bbs.binmt.cc/k_misign-sign.html',
-                'https://bbs.binmt.cc/plugin.php?id=k_misign:sign'
-            ];
-            var tried = 0;
-
-            function tryFetch() {
-                if (tried >= urls.length) {
-                    // 所有 URL 都失败了，用当前页面数据
-                    finishWithInfo(info, null);
-                    return;
-                }
-                fetch(urls[tried], { credentials: 'include' })
-                    .then(function (res) { return res.text(); })
-                    .then(function (html) {
-                        tried++;
-                        // 检查是否被重定向到登录页
-                        if (html.indexOf('登录') !== -1 && html.indexOf('用户名') !== -1 && html.indexOf('密码') !== -1) {
-                            tryFetch(); // 试下一个 URL
-                            return;
-                        }
-                        // 解析签到页面
-                        parseSignPage(html, info);
-                    })
-                    .catch(function () {
-                        tried++;
-                        tryFetch();
-                    });
-            }
-
-            function parseSignPage(html, info) {
-                var parser = new DOMParser();
-                var doc = parser.parseFromString(html, 'text/html');
-                var bodyText = doc.body ? doc.body.innerText || doc.body.textContent : '';
-
-                // 从签到页面提取用户名
-                var userMatch = bodyText.match(/欢迎\s*(\S+)/i) || bodyText.match(/(\S+)\s*[，,]\s*您好/i);
-                if (userMatch) info.username = userMatch[1] || userMatch[2] || info.username;
-
-                // 签到状态
-                info.signedToday = /今日已签|已签到|签到成功|签到奖励/i.test(bodyText);
-
-                // 连续签到
-                var dayMatch = bodyText.match(/(?:已连续签到|连续签到|已签到)\s*(\d+)\s*天/i);
-                if (dayMatch) info.continuousDays = dayMatch[1];
-
-                // 累计签到
-                var totalMatch = bodyText.match(/(?:累计签到|总共签到|签到总天数)\s*(\d+)\s*天/i);
-                if (totalMatch) info.totalDays = totalMatch[1];
-
-                // 签到等级
-                var levelMatch = bodyText.match(/签到等级[：:]\s*(\S+)/i);
-                if (levelMatch) info.level = levelMatch[1];
-
-                // 签到排名
-                var posMatch = bodyText.match(/签到排名[：:]\s*第\s*(\d+)/i);
-                if (posMatch) info.position = posMatch[1];
-
-                // 积分
-                var creditMatch = bodyText.match(/(?:积分|金币|经验)[：:]\s*(\d+)/i);
-                if (creditMatch) info.credit = creditMatch[1];
-
-                // 如果签到页面有表单以外的结构化数据，尝试提取表格
-                var tables = doc.querySelectorAll('table');
-                var extraData = [];
-                for (var i = 0; i < tables.length; i++) {
-                    var rows = tables[i].querySelectorAll('tr');
-                    for (var j = 0; j < rows.length; j++) {
-                        var cells = rows[j].querySelectorAll('th, td');
-                        var rowText = [];
-                        for (var k = 0; k < cells.length; k++) {
-                            rowText.push(cells[k].textContent.trim());
-                        }
-                        if (rowText.length > 0) {
-                            var line = rowText.join('  ').trim();
-                            if (line.length > 2) extraData.push(line);
-                        }
-                    }
-                }
-
-                // 尝试提取签到按钮状态
-                var signBtn = doc.querySelector('a[href*="k_misign"], a[href*="sign"], button:contains(签到)');
-                if (signBtn) {
-                    var btnText = signBtn.textContent.trim();
-                    if (/签到/.test(btnText)) {
-                        if (/已签|已打卡/.test(btnText)) info.signedToday = true;
-                    }
-                }
-
-                finishWithInfo(info, extraData);
-            }
-
-            function finishWithInfo(info, extraData) {
-                // 如果所有数据都为空，显示原始页面内容片段
-                var hasData = info.continuousDays || info.totalDays || info.level ||
-                    info.credit || info.signedToday !== undefined;
-                setTimeout(function () {
-                    showInfoModal(info, extraData || [], hasData);
-                    lvBtn._loading = false;
-                    lvBtn.style.background = 'rgba(100,100,100,0.6)';
-                    lvBtn.textContent = 'LV';
-                }, 100);
-            }
-
-            function extractInfoFromCurrentPage() {
-                var info = {};
-                // 用户名
-                var userSel = document.querySelector(
-                    '.vwmy a, .hdc h2 a, #um p a, a[href*="space-uid"], ' +
-                    '.authi a, .posterli a, .pls .avatar a[href*="uid"]'
-                );
-                if (userSel) info.username = userSel.textContent.trim();
-
-                // 积分 - 从当前页面找
-                var allText = document.body.innerText || document.body.textContent || '';
-                var creditMatch = allText.match(/(?:积分|金币)[：:]\s*(\d+)/i);
-                if (creditMatch) info.credit = creditMatch[1];
-
-                // 签到状态 - 从当前页面查找签到按钮
-                var signBtn = document.querySelector('a[href*="k_misign"], a[href*="sign"], td[class*="sign"]');
-                if (signBtn) {
-                    info.signedToday = /已签|已打卡/.test(signBtn.textContent);
-                }
-
-                // 从当前页面文本提取连续签到
-                var dayMatch = allText.match(/(?:连续签到|已签到)\s*(\d+)\s*天/i);
-                if (dayMatch) info.continuousDays = dayMatch[1];
-
-                return info;
-            }
-
-            tryFetch();
-        };
-
-        function showInfoModal(info, tableData, hasData) {
-            var overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
-                'background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;' +
-                'align-items:center;justify-content:center;font-family:sans-serif';
-
-            var modal = document.createElement('div');
-            modal.style.cssText = 'background:#fff;border-radius:14px;padding:20px 24px;' +
-                'max-width:400px;width:88%;box-shadow:0 8px 30px rgba(0,0,0,0.3);' +
-                'text-align:left;max-height:80vh;overflow-y:auto';
-
-            var html = '';
-
-            html += '<div style="border-bottom:1px solid #eee;padding-bottom:14px;margin-bottom:14px;">' +
-                '<div style="font-size:20px;font-weight:bold;color:#333;">' +
-                (info.username || '用户') + '</div>';
-
-            // 签到状态
-            if (info.signedToday !== undefined) {
-                var signColor = info.signedToday ? '#10b981' : '#f59e0b';
-                var signText = info.signedToday ? '✅ 今日已签到' : '⏳ 今日未签到';
-                html += '<div style="font-size:13px;color:' + signColor + ';margin-top:4px;">' + signText + '</div>';
-            }
-            html += '</div>';
-
-            // 信息行
-            var rows = [
-                { label: '连续签到', value: info.continuousDays ? info.continuousDays + ' 天' : '—' },
-                { label: '累计签到', value: info.totalDays ? info.totalDays + ' 天' : '—' },
-                { label: '签到等级', value: info.level || '—' },
-                { label: '签到排名', value: info.position ? '第 ' + info.position + ' 名' : '—' },
-                { label: '积分', value: info.credit || '—' }
-            ];
-
-            for (var i = 0; i < rows.length; i++) {
-                html += '<div style="display:flex;justify-content:space-between;padding:6px 0;' +
-                    'border-bottom:1px solid #f5f5f5;font-size:14px;">' +
-                    '<span style="color:#999;">' + rows[i].label + '</span>' +
-                    '<span style="color:#333;font-weight:bold;">' + rows[i].value + '</span></div>';
-            }
-
-            // 附加表格数据
-            if (tableData && tableData.length > 0) {
-                html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee;">' +
-                    '<div style="font-size:12px;color:#999;margin-bottom:6px;">📋 签到详情</div>';
-                for (var i = 0; i < tableData.length; i++) {
-                    html += '<div style="font-size:12px;color:#666;padding:2px 0;">' + tableData[i] + '</div>';
-                }
-                html += '</div>';
-            }
-
-            html += '<div style="text-align:center;margin-top:16px;">' +
-                '<button id="mt_info_close" style="background:#3b82f6;color:#fff;border:none;' +
-                'padding:8px 32px;border-radius:8px;font-size:14px;cursor:pointer;">关闭</button></div>';
-
-            modal.innerHTML = html;
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-
-            document.getElementById('mt_info_close').addEventListener('click', function () {
-                overlay.remove();
-            });
-            overlay.addEventListener('click', function (e) {
-                if (e.target === overlay) overlay.remove();
-            });
-        }
-
-        // LV 按钮和 ↑ 按钮始终显示
-
-        /* ---------- 9. 拖拽逻辑（含触屏阈值） ---------- */
+        /* ---------- 8. 拖拽逻辑（含触屏阈值） ---------- */
         var dragging = false;
         var dragData = {};
         var dragMoved = false;
@@ -437,19 +397,16 @@
             var dy = Math.abs(clientY - dragData.startY);
 
             if (dx < CONFIG.dragThreshold && dy < CONFIG.dragThreshold) {
-                return; // 未超过阈值，视为点击
+                return;
             }
 
-            // 超过阈值，但拖拽已结束（dragMoved true, dragging false）→ 残留 mousemove，忽略
             if (dragMoved && !dragging) return;
 
-            // 首次超过阈值 → 激活拖拽
             if (!dragging) {
                 dragging = true;
                 dragMoved = true;
             }
 
-            // 已激活拖拽 → 跟随鼠标移动
             var x = Math.max(0, Math.min(window.innerWidth - 44, clientX - dragData.ox));
             var y = Math.max(0, Math.min(window.innerHeight - 44, clientY - dragData.oy));
             btn.style.left = x + 'px';
@@ -468,7 +425,6 @@
                 bottomVal: bottomVal,
                 rightVal: rightVal
             }));
-            // 恢复 bottom/right 定位，避免后续 mousemove 干扰
             btn.style.bottom = bottomVal;
             btn.style.right = rightVal;
             btn.style.left = 'auto';
@@ -483,7 +439,6 @@
 
         document.addEventListener('mousemove', function (e) {
             if (!btn.style.left || btn.style.left === 'auto') return;
-            // 左键没按下 → 忽略（鼠标已松开，残留的 mousemove）
             if (!(e.buttons & 1)) return;
             dragMove(e.clientX, e.clientY);
         });
@@ -508,24 +463,15 @@
             dragEnd();
         }, { passive: true });
 
-        document.body.appendChild(statusEl);
-        document.body.appendChild(topBtn);
-        document.body.appendChild(lvBtn);
-
-        /* ---------- 10. 统一点击处理（拖拽不触发！） ---------- */
+        /* ---------- 9. 统一点击处理（拖拽不触发！） ---------- */
         function handleClick() {
-            // ★ 核心：拖拽过则不执行任何点击动作
-            if (dragMoved) {
-                return;
-            }
+            if (dragMoved) return;
 
             if (replied) {
-                // 已回复 → 刷新
                 location.reload();
                 return;
             }
 
-            // 未回复 → 执行回复
             if (loading) return;
             loading = true;
             showStatus('⏳ 回复中', 'rgba(0,0,0,0.75)');
@@ -579,7 +525,7 @@
             statusEl.style.display = 'none';
         }
 
-        /* ---------- 11. 降级方案 ---------- */
+        /* ---------- 10. 降级方案 ---------- */
         function fallbackReply(msg) {
             showStatus('⚠️ AJAX 失败，尝试表单提交', 'rgba(239,68,68,0.9)');
             btn.style.background = '#ef4444';
@@ -618,7 +564,7 @@
             }
         }
 
-        /* ---------- 12. 手动操作引导 ---------- */
+        /* ---------- 11. 手动操作引导 ---------- */
         function showManualModal(msg) {
             var overlay = document.createElement('div');
             overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
