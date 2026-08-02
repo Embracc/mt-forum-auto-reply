@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MT论坛 一键回复看隐藏
 // @namespace    https://github.com/Embrace/mt-forum-auto-reply
-// @version      2.4
+// @version      2.5
 // @description  全站悬浮按钮：M(一键回复看隐藏)、↑(回到顶部)、LV(个人信息签到)。支持触屏拖拽、智能降级
 // @author       Embrace
 // @match        https://bbs.binmt.cc/*
@@ -31,7 +31,7 @@
             '感谢搬运'
         ],
         dragThreshold: 10,  // px, 超过此距离视为拖拽
-        version: '2.4'
+        version: '2.5'
     };
 
     /* ===== 工具函数 ===== */
@@ -203,6 +203,91 @@
         return { topBtn: topBtn, lvBtn: lvBtn };
     }
 
+    /* ===== 自动翻页（帖子列表 / 帖子内容，滚动到底部自动点击下一页） ===== */
+    function setupAutoPagination() {
+        var nextLink = document.querySelector(
+            'a.next:not([href*="javascript"]), ' +
+            'a.nxt:not([href*="javascript"]), ' +
+            'a[href*="page"][href*="="]:not([href*="javascript"]), ' +
+            'div.pg a:last-of-type:not([href*="javascript"])'
+        );
+
+        // 尝试更精确匹配
+        var allLinks = document.querySelectorAll('div.pg a');
+        for (var i = 0; i < allLinks.length; i++) {
+            var txt = allLinks[i].textContent.trim();
+            if (txt === '下一页' || txt === '›' || txt === '»' || /^next$/i.test(txt)) {
+                nextLink = allLinks[i];
+                break;
+            }
+        }
+        // 如果还没找到，找文本包含"下一页"的链接
+        if (!nextLink) {
+            allLinks = document.querySelectorAll('a');
+            for (var i = 0; i < allLinks.length; i++) {
+                if (allLinks[i].textContent.trim() === '下一页') {
+                    nextLink = allLinks[i];
+                    break;
+                }
+            }
+        }
+
+        if (!nextLink) return; // 没有翻页，不启用
+
+        var cooldown = false;
+        var lastClickTime = 0;
+
+        // 创建小提示
+        var indicator = document.createElement('div');
+        indicator.id = 'mt_autopage';
+        indicator.textContent = '▶ 自动翻页';
+        indicator.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483646;' +
+            'background:rgba(0,0,0,0.5);color:#fff;font-size:11px;padding:4px 10px;' +
+            'border-radius:6px;font-family:sans-serif;pointer-events:none;display:none';
+
+        document.body.appendChild(indicator);
+
+        function tryAutoPage() {
+            if (cooldown) return;
+            var now = Date.now();
+            if (now - lastClickTime < 3000) return;
+
+            var scrollBottom = window.scrollY + window.innerHeight;
+            var pageHeight = document.documentElement.scrollHeight;
+
+            // 滚动到底部 300px 以内触发
+            if (pageHeight - scrollBottom < 300) {
+                cooldown = true;
+                lastClickTime = now;
+                indicator.style.display = 'block';
+                indicator.textContent = '⏩ 自动翻页中...';
+                indicator.style.background = 'rgba(59,130,246,0.7)';
+
+                nextLink.click();
+
+                setTimeout(function () {
+                    cooldown = false;
+                    indicator.textContent = '▶ 自动翻页';
+                    indicator.style.background = 'rgba(0,0,0,0.5)';
+                    setTimeout(function () { indicator.style.display = 'none'; }, 3000);
+                }, 3000);
+            }
+        }
+
+        // 用节流优化性能
+        var scrollTimer = null;
+        window.addEventListener('scroll', function () {
+            if (scrollTimer) return;
+            scrollTimer = setTimeout(function () {
+                scrollTimer = null;
+                tryAutoPage();
+            }, 200);
+        }, { passive: true });
+
+        // 初始加载时也检查一次（可能一进来就在底部）
+        setTimeout(tryAutoPage, 500);
+    }
+
     function showInfoModal(info, tableData) {
         var overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
@@ -266,6 +351,7 @@
     waitForDOM(function () {
         // 先创建辅助按钮（全站可见）
         createAuxButtons();
+        setupAutoPagination();
 
         /* ---------- 1. 探测隐藏区域 ---------- */
         function findLocked() {
