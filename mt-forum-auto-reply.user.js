@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MT论坛 一键回复看隐藏
 // @namespace    https://github.com/Embrace/mt-forum-auto-reply
-// @version      2.3
+// @version      2.4
 // @description  全站悬浮按钮：M(一键回复看隐藏)、↑(回到顶部)、LV(个人信息签到)。支持触屏拖拽、智能降级
 // @author       Embrace
 // @match        https://bbs.binmt.cc/*
@@ -31,7 +31,7 @@
             '感谢搬运'
         ],
         dragThreshold: 10,  // px, 超过此距离视为拖拽
-        version: '2.3'
+        version: '2.4'
     };
 
     /* ===== 工具函数 ===== */
@@ -79,6 +79,14 @@
             'border:1px solid rgba(255,255,255,0.15);' +
             'transition:transform 0.2s;' +
             'bottom:134px;right:38px';
+
+        // 初始状态：从当前页面判断是否已签到
+        (function () {
+            var signBtn = document.querySelector('a[href*="k_misign"], a[href*="sign"], td[class*="sign"], .btnvisted');
+            if (signBtn && /已签|已打卡|btnvisted/.test(signBtn.textContent || signBtn.className)) {
+                lvBtn.style.background = 'rgba(16,185,129,0.7)';
+            }
+        })();
 
         lvBtn.onclick = function () {
             if (lvBtn._loading) return;
@@ -161,7 +169,8 @@
                 setTimeout(function () {
                     showInfoModal(info, extraData || []);
                     lvBtn._loading = false;
-                    lvBtn.style.background = 'rgba(100,100,100,0.6)';
+                    // 已签到 → 绿色，未签到 → 灰色
+                    lvBtn.style.background = info.signedToday ? 'rgba(16,185,129,0.7)' : 'rgba(100,100,100,0.6)';
                     lvBtn.textContent = 'LV';
                 }, 100);
             }
