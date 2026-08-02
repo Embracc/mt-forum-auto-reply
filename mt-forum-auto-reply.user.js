@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MT论坛 一键回复看隐藏
 // @namespace    https://github.com/Embrace/mt-forum-auto-reply
-// @version      2.2
+// @version      2.2.1
 // @description  可拖拽悬浮按钮，点击自动回复看隐藏。支持触屏拖拽、回到顶部、智能降级
 // @author       Embrace
 // @match        https://bbs.binmt.cc/thread-*
@@ -31,7 +31,7 @@
             '感谢搬运'
         ],
         dragThreshold: 10,  // px, 超过此距离视为拖拽
-        version: '2.1'
+        version: '2.2.1'
     };
 
     /* ===== 工具函数 ===== */
