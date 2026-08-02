@@ -464,6 +464,8 @@
         }, { passive: true });
 
         /* ---------- 9. 统一点击处理（拖拽不触发！） ---------- */
+        var loading = false;
+
         function handleClick() {
             if (dragMoved) return;
 
