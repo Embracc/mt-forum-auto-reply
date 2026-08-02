@@ -110,42 +110,48 @@
             function parseSignPage(html, info) {
                 var parser = new DOMParser();
                 var doc = parser.parseFromString(html, 'text/html');
+
+                // 用户名
+                var authorLink = doc.querySelector('.author');
+                if (authorLink) info.username = authorLink.textContent.trim();
+
+                // 签到状态：btnvisted 表示今日已签到
+                info.signedToday = !!doc.querySelector('.btn.btnvisted, .btnvisted');
+
+                // 连续签到（hidden input）
+                var lxdays = doc.querySelector('#lxdays');
+                if (lxdays) info.continuousDays = lxdays.value;
+
+                // 总天数（hidden input）
+                var lxtdays = doc.querySelector('#lxtdays');
+                if (lxtdays) info.totalDays = lxtdays.value;
+
+                // 签到等级（hidden input）
+                var lxlevel = doc.querySelector('#lxlevel');
+                if (lxlevel) info.level = lxlevel.value;
+
+                // 签到排名（hidden input）
+                var rankNum = doc.querySelector('#qiandaobtnnum');
+                if (rankNum) info.position = rankNum.value;
+
+                // 积分奖励（hidden input）
+                var lxreward = doc.querySelector('#lxreward');
+                if (lxreward) info.reward = lxreward.value;
+
+                // 积分：从当前页面获取更可靠
                 var bodyText = doc.body ? doc.body.innerText || doc.body.textContent : '';
-
-                var userMatch = bodyText.match(/欢迎\s*(\S+)/i) || bodyText.match(/(\S+)\s*[，,]\s*您好/i);
-                if (userMatch) info.username = userMatch[1] || userMatch[2] || info.username;
-
-                info.signedToday = /今日已签|已签到|签到成功|签到奖励/i.test(bodyText);
-
-                var dayMatch = bodyText.match(/(?:已连续签到|连续签到|已签到)\s*(\d+)\s*天/i);
-                if (dayMatch) info.continuousDays = dayMatch[1];
-
-                var totalMatch = bodyText.match(/(?:累计签到|总共签到|签到总天数)\s*(\d+)\s*天/i);
-                if (totalMatch) info.totalDays = totalMatch[1];
-
-                var levelMatch = bodyText.match(/签到等级[：:]\s*(\S+)/i);
-                if (levelMatch) info.level = levelMatch[1];
-
-                var posMatch = bodyText.match(/签到排名[：:]\s*第\s*(\d+)/i);
-                if (posMatch) info.position = posMatch[1];
-
-                var creditMatch = bodyText.match(/(?:积分|金币|经验)[：:]\s*(\d+)/i);
+                var creditMatch = bodyText.match(/积分[：:]\s*(\d+)/i);
                 if (creditMatch) info.credit = creditMatch[1];
 
-                var tables = doc.querySelectorAll('table');
+                // 额外数据：签到之星、历史最高等
                 var extraData = [];
-                for (var i = 0; i < tables.length; i++) {
-                    var rows = tables[i].querySelectorAll('tr');
-                    for (var j = 0; j < rows.length; j++) {
-                        var cells = rows[j].querySelectorAll('th, td');
-                        var rowText = [];
-                        for (var k = 0; k < cells.length; k++) rowText.push(cells[k].textContent.trim());
-                        if (rowText.length > 0) {
-                            var line = rowText.join('  ').trim();
-                            if (line.length > 2) extraData.push(line);
-                        }
-                    }
+                var starEl = doc.querySelector('.y .xg1');
+                if (starEl) {
+                    var starText = starEl.textContent.trim();
+                    if (starText) extraData.push(starText);
                 }
+                var rules = doc.querySelector('a[href*="rewardrule"]');
+                if (rules) extraData.push('奖励规则: ' + rules.textContent.trim());
 
                 finishWithInfo(info, extraData);
             }
@@ -212,8 +218,9 @@
         var rows = [
             { label: '连续签到', value: info.continuousDays ? info.continuousDays + ' 天' : '—' },
             { label: '累计签到', value: info.totalDays ? info.totalDays + ' 天' : '—' },
-            { label: '签到等级', value: info.level || '—' },
+            { label: '签到等级', value: info.level ? 'Lv.' + info.level : '—' },
             { label: '签到排名', value: info.position ? '第 ' + info.position + ' 名' : '—' },
+            { label: '今日奖励', value: info.reward ? info.reward + ' 积分' : '—' },
             { label: '积分', value: info.credit || '—' }
         ];
 
